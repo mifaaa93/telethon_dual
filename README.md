@@ -1,4 +1,4 @@
-git clone <repo> app && cd app
+git clone mifaaa93/telethon_dual app && cd app
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
