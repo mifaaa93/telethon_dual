@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtualenv
+.env
+.venv
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Databases
+*.sqlite
+*.sqlite3
+db.sqlite*
+data/
+*.db
+
+# Cache
+*.cache
+.cache/
+
+# Compiled files
+*.pyd
+*.pyo
+*.pyc
+
+# Test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Local config
+config.local.json
+settings.local.json
+config_dev.py
+
+# Telethon/Session files
+*.session
+*.session-journal
