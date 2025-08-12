@@ -3,8 +3,10 @@ from openpyxl.styles import Font
 from io import BytesIO
 import datetime as dt
 from typing import List, Dict, Any
+from telethon.tl import types
 
-async def create_excel(data: List[Dict[str, Any]], owners: bool = False) -> BytesIO:
+
+async def create_excel(data: List[Dict[str, Any]], owners: bool = False, include: list[str]= None) -> BytesIO:
     """
     Создаёт Excel-файл в памяти и возвращает BytesIO с установленным именем.
     Если owners=True:
@@ -48,7 +50,9 @@ async def create_excel(data: List[Dict[str, Any]], owners: bool = False) -> Byte
 
     # Локальный часовой пояс
     local_tz = dt.datetime.now().astimezone().tzinfo
-
+    if include:
+        data = [row for row in data if row.get("link") in include]
+    total = len(data)
     # Заполнение строк
     for row in data:
         date_created = (
@@ -101,5 +105,73 @@ async def create_excel(data: List[Dict[str, Any]], owners: bool = False) -> Byte
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
-    buf.name = "Total_links_stat.xlsx" if owners else "links_stat.xlsx"
+    buf.name = f"Total_links_stat({total}).xlsx" if owners else f"links_stat_({total}).xlsx"
+    return buf
+
+
+async def create_excel_from_(data: List[types.ChatInviteExported]) -> BytesIO:
+    """
+    Создаёт Excel-файл в памяти и возвращает BytesIO с установленным именем.
+    По списку объектов ChatInviteExported.
+    Если owners=True — добавляет колонку admin_id (создатель ссылки) первой.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Links"
+
+    headers = [
+        "Ссылка",
+        "Название",
+        "Использовано",
+        "Одобрено заявок",
+        "Всего посещений",
+        "Дата создания",
+    ]
+    ws.append(headers)
+
+    # жирная шапка
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    # локальный часовой пояс
+    local_tz = dt.datetime.now().astimezone().tzinfo
+
+    # строки
+    for inv in data:
+        link = getattr(inv, "link", "") or ""
+        title = getattr(inv, "title", "") or ""
+        usage = getattr(inv, "usage", 0) or 0
+        approved = getattr(inv, "approved_request_count", 0) or 0
+        request_needed = bool(getattr(inv, "request_needed", False))
+
+        visits_total = usage + (approved if request_needed else 0)
+
+        date_obj = getattr(inv, "date", None)
+        date_created = (
+            dt.datetime.fromtimestamp(int(date_obj.timestamp()), tz=dt.timezone.utc)
+              .astimezone(local_tz).strftime("%Y-%m-%d %H:%M:%S")
+            if date_obj else ""
+        )
+
+        row = [link, title, usage, approved, visits_total, date_created]
+
+        ws.append(row)
+
+    # автоширина колонок
+    for col in ws.columns:
+        max_len = 0
+        letter = col[0].column_letter
+        for cell in col:
+            try:
+                l = len(str(cell.value)) if cell.value is not None else 0
+                if l > max_len:
+                    max_len = l
+            except Exception:
+                pass
+        ws.column_dimensions[letter].width = max_len + 2
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    buf.name = "links_from_exported.xlsx"
     return buf

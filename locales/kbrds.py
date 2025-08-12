@@ -69,3 +69,47 @@ def back_to_links_btn(user: Any = None) -> types.ReplyInlineMarkup:
         ]),
     ]
     return types.ReplyInlineMarkup(rows=rows)
+
+def back_to_stat_btn(user: Any = None) -> types.ReplyInlineMarkup:
+    """
+    """
+    rows = [
+        types.KeyboardButtonRow(buttons=[
+            types.KeyboardButtonCallback(
+                text=get_btn_text("BTN_BACK"),
+                data=b"stat:back"
+            )
+        ]),
+    ]
+    return types.ReplyInlineMarkup(rows=rows)
+
+
+def stat_inline_menu(user: Any = None) -> types.ReplyInlineMarkup:
+    """
+    Инлайн-клавиатура через TL-типы:
+    - ReplyInlineMarkup
+    - KeyboardButtonRow
+    - KeyboardButtonCallback (callback_data — bytes)
+    """
+    rows = [
+
+        types.KeyboardButtonRow(buttons=[
+            types.KeyboardButtonCallback(
+                text=get_btn_text("BTN_STAT_LINKS"),
+                data=b"stat:links"
+            )
+        ]),
+        types.KeyboardButtonRow(buttons=[
+            types.KeyboardButtonCallback(
+                text=get_btn_text("BTN_STAT_ALL"),
+                data=b"stat:all"
+            )
+        ]),
+        types.KeyboardButtonRow(buttons=[
+            types.KeyboardButtonCallback(
+                text=get_btn_text("BTN_CANCEL"),
+                data=b"stat:cancel"
+            )
+        ]),
+    ]
+    return types.ReplyInlineMarkup(rows=rows)

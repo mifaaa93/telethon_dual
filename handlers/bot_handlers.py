@@ -1,7 +1,7 @@
 # handlers/bot_handlers.py
 from __future__ import annotations
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable, Awaitable
 
 from telethon import events, types, TelegramClient
 from telethon.events import NewMessage, CallbackQuery
@@ -12,7 +12,7 @@ from services.db import insert_many_from_exported, get_invites_by_owner, get_all
 
 from decorators.auth import require_role, Role
 
-from locales.kbrds import main_menu, links_inline_menu, back_to_links_btn
+from locales.kbrds import main_menu, links_inline_menu, back_to_links_btn, stat_inline_menu, back_to_stat_btn
 from locales.texts import get_text, get_all_btns_list, links_list_to_str
 
 log = logging.getLogger("app")
@@ -27,6 +27,56 @@ def private_only(func):
             return
         return await func(event, *args, **kwargs)
     return wrapper
+
+
+async def _create_and_send_links(
+                client: TelegramClient,
+                user_client: TelegramClient,
+                user_id: int,
+                prompt_msg: Message | None,
+                create_coro_factory: Callable[[], Awaitable[List[types.ChatInviteExported]]],
+                ) -> None:
+    """
+    Удаляет предыдущее бот-сообщение с кнопкой «Назад», показывает статус,
+    создаёт ссылки, сохраняет в БД и отправляет результат одним местом.
+    """
+    # 1) снести предыдущее "вопрос/назад"
+    if prompt_msg:
+        try:
+            await prompt_msg.delete()
+        except Exception:
+            pass
+
+    # 2) статус
+    status = await client.send_message(user_id, get_text('CREATING_LINKS'))
+
+    try:
+        # 3) создать ссылки
+        links = await create_coro_factory()
+
+        # 4) сохранить в БД
+        await insert_many_from_exported(links, settings.target_chat_id, user_id)
+
+        # 5) ответ с результатом
+        try:
+            to_answer = await client.send_message(user_id, links_list_to_str(links), buttons=main_menu())
+        except Exception as e:
+            to_answer = None
+        if links:
+            file = await utilites.create_excel_from_(links)
+            await client.send_file(entity=user_id, file=file, reply_to=to_answer, buttons=main_menu())
+        # 6) обновить статус
+        await status.edit(get_text('READY_LINKS'))
+
+    except Exception as e:
+        log.exception("links_creation_failed")
+        try:
+            await status.edit(f"{get_text('CREATING_LINKS_ERROR')}: {e}")
+        except Exception:
+            pass
+    finally:
+        STATE.pop(user_id, None)
+
 
 
 def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> None:
@@ -81,15 +131,9 @@ def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> N
             await event.respond(get_text("CREATE_LINK_TEXT"), buttons=links_inline_menu())
             return
         
-        # Открыть инлайн-меню генерации ссылок
+        # Открыть инлайн-меню статистики
         if text in get_all_btns_list("BTN_STAT"):
-            # генерируем статистику по всем ссылкам юзера в файл ексель и отправляем
-            data = await get_invites_by_owner(user_id)
-            if data:
-                file = await utilites.create_excel(data)
-                await client.send_file(entity=user_id, caption=get_text("YOUR_STAT_TEXT"), file=file)
-            else:
-                await event.respond(get_text("NO_STAT_TEXT"))
+            await event.respond(get_text("MAIN_STAT_TEXT"), buttons=stat_inline_menu())
             return
 
         # Остальные сообщения обработаем в "шаговом" диалоге (ниже),
@@ -113,28 +157,15 @@ def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> N
                 await event.reply(get_text("ASK_COUNT"))
                 return
             prompt: Message = STATE.get(user_id, {}).get("prompt_msg")
-            if prompt:
-                try:
-                    await prompt.delete()
-                except Exception:
-                    pass
-            # стало:
-            status = await event.respond(get_text('CREATING_LINKS'))
-            try:
-                links: List[types.ChatInviteExported] = await user_service.create_links_no_title(
-                    user_client,
-                    settings.target_chat_id,
-                    n
-                )
-                await insert_many_from_exported(links, settings.target_chat_id, user_id)
-                STATE.pop(user_id, None)
-                await event.reply(links_list_to_str(links), buttons=main_menu())
-                await status.edit(f"{get_text('READY_LINKS')}")
-
-            except Exception as e:
-                log.exception("create_links_no_title")
-                await status.edit(f"{get_text('CREATING_LINKS_ERROR')}: {e}")
-                STATE.pop(user_id, None)
+            await _create_and_send_links(
+                client,
+                user_client,
+                user_id,
+                prompt,
+                create_coro_factory=lambda: user_service.create_links_no_title(
+                    user_client, settings.target_chat_id, n
+                ),
+            )
             return
 
         # 2) Режим: по списку названий
@@ -148,26 +179,15 @@ def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> N
                 return
             # стало:
             prompt: Message = STATE.get(user_id, {}).get("prompt_msg")
-            if prompt:
-                try:
-                    await prompt.delete()
-                except Exception:
-                    pass
-            status = await event.respond(get_text('CREATING_LINKS'))
-            try:
-                links: List[types.ChatInviteExported] = await user_service.create_links_with_titles(
+            await _create_and_send_links(
+                    client,
                     user_client,
-                    settings.target_chat_id,
-                    titles
+                    user_id,
+                    prompt,
+                    create_coro_factory=lambda: user_service.create_links_with_titles(
+                        user_client, settings.target_chat_id, titles
+                    ),
                 )
-                await insert_many_from_exported(links, settings.target_chat_id, user_id)
-                STATE.pop(user_id, None)
-                await event.reply(links_list_to_str(links), buttons=main_menu())
-                await status.edit(f"{get_text('READY_LINKS')}")
-            except Exception as e:
-                log.exception("create_links_with_titles")
-                await status.edit(f"{get_text('CREATING_LINKS_ERROR')}: {e}")
-                STATE.pop(user_id, None)
             return
 
         # 3) Режим: по маске
@@ -200,28 +220,38 @@ def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> N
 
                 mask: str = st.get("mask", "")
                 prompt: Message = STATE.get(user_id, {}).get("prompt_msg")
-                if prompt:
-                    try:
-                        await prompt.delete()
-                    except Exception:
-                        pass
-                status = await event.respond(get_text('CREATING_LINKS'))
-                try:
-                    links: List[types.ChatInviteExported] = await user_service.create_links_with_mask(
-                        user_client,
-                        settings.target_chat_id,
-                        mask,
-                        n
-                    )
-                    await insert_many_from_exported(links, settings.target_chat_id, user_id)
-                    STATE.pop(user_id, None)
-                    await event.reply(links_list_to_str(links), buttons=main_menu())
-                    await status.edit(f"{get_text('READY_LINKS')}")
-                except Exception as e:
-                    log.exception("create_links_with_mask")
-                    await status.edit(f"{get_text('CREATING_LINKS_ERROR')}: {e}")
-                    STATE.pop(user_id, None)
+                await _create_and_send_links(
+                    client,
+                    user_client,
+                    user_id,
+                    prompt,
+                    create_coro_factory=lambda: user_service.create_links_with_mask(
+                        user_client, settings.target_chat_id, mask, n
+                    ),
+                )
                 return
+        # 4) Режим: статистика по списку ссылок
+        if mode == "stat" and step == "ask_links":
+            links = [line.strip() for line in text.splitlines() if line.strip()]
+            if not links:
+                await event.reply(get_text("ASK_STAT_LINKS"))
+                return
+            # стало:
+            prompt: Message = STATE.get(user_id, {}).get("prompt_msg")
+            STATE.pop(user_id, None)
+            if prompt:
+                try:
+                    prompt.delete()
+                except Exception as e:
+                    log.error(f"prompt.delete(): {e}")
+            data = await get_invites_by_owner(user_id)
+            if data:
+                file = await utilites.create_excel(data, include=links)
+                await client.send_file(entity=user_id, caption=get_text("YOUR_STAT_TEXT"), file=file, buttons=main_menu())
+            else:
+                await event.respond(get_text("NO_STAT_TEXT"))
+            
+            return
 
     # ---------------------- ИНЛАЙН-КНОПКИ: ВЫБОР РЕЖИМА ----------------------
 
@@ -247,7 +277,7 @@ def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> N
         msg = await event.edit(get_text("ASK_MASK"), buttons=back_to_links_btn())
         STATE[event.sender_id] = {"mode": "mask", "step": "ask_mask", "prompt_msg": msg}
 
-    @client.on(events.CallbackQuery(pattern=b"gen:cancel"))
+    @client.on(events.CallbackQuery(pattern=b"(gen|stat):cancel"))
     @private_only
     async def cb_cancel(event: CallbackQuery) -> None:
         STATE.pop(event.sender_id, None)
@@ -256,6 +286,36 @@ def setup_bot_handlers(client: TelegramClient, user_client: TelegramClient) -> N
 
     @client.on(events.CallbackQuery(pattern=b"gen:back"))
     @private_only
-    async def cb_cancel(event: CallbackQuery) -> None:
+    async def cb_back(event: CallbackQuery) -> None:
         STATE.pop(event.sender_id, None)
         await event.edit(get_text("CREATE_LINK_TEXT"), buttons=links_inline_menu())
+    
+
+    @client.on(events.CallbackQuery(pattern=b"stat:back"))
+    @private_only
+    async def stat_back(event: CallbackQuery) -> None:
+        STATE.pop(event.sender_id, None)
+        await event.edit(get_text("MAIN_STAT_TEXT"), buttons=stat_inline_menu())
+    
+
+    @client.on(events.CallbackQuery(pattern=b"stat:all"))
+    @private_only
+    async def stat_all_btn(event: CallbackQuery) -> None:
+
+        user_id = event.sender_id
+        data = await get_invites_by_owner(user_id)
+        if data:
+            file = await utilites.create_excel(data)
+            await client.send_file(entity=user_id, caption=get_text("YOUR_STAT_TEXT"), file=file, buttons=main_menu())
+        else:
+            await event.respond(get_text("NO_STAT_TEXT"))
+        await event.answer()
+        return
+    
+    @client.on(events.CallbackQuery(pattern=b"stat:links"))
+    @private_only
+    async def stat_links_btn(event: CallbackQuery) -> None:
+
+        msg = await event.edit(get_text("ASK_STAT_LINKS"), buttons=back_to_stat_btn())
+        STATE[event.sender_id] = {"mode": "stat", "step": "ask_links", "prompt_msg": msg}
+

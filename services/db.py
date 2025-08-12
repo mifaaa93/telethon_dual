@@ -305,7 +305,7 @@ async def get_invites_by_owner(owner_tg_id: int) -> list[dict]:
 async def get_all_invites() -> list[dict]:
     """
     Получить все ссылки + данные владельца (username, first_name).
-        link
+    link
     chat_id
     owner_tg_id
     title
