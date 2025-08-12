@@ -42,6 +42,10 @@ texts_dict = {
     "NO_STAT_TEXT": {
         "RU": "У вас нет ссылок!"
     },
+    "NO_ACCESS_TEXT": {
+        "RU": "⛔ У вас нет доступа к этой команде."
+    },
+    
 }
 
 btns_dict = {

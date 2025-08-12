@@ -3,6 +3,7 @@ from enum import Enum, auto
 from typing import Callable, Iterable, Awaitable
 from telethon.events.newmessage import NewMessage
 from config import settings
+from locales.texts import get_text
 
 
 class Role(Enum):
@@ -39,7 +40,7 @@ def require_role(
             uid = event.sender_id  # type: ignore[attr-defined]
             roles = _user_roles(uid)
             if not roles.intersection(allowed_set):
-                await event.reply("⛔ У вас нет доступа к этой команде.")
+                await event.reply(get_text("NO_ACCESS_TEXT"))
                 return
             await handler(event)
         return wrapper
